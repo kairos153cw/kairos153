@@ -4,6 +4,50 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>KAIROS 153 생기부 분석기</title>
+    <style>
+      /* ── 인쇄 전용 CSS ── */
+      .print-only { display: none; }
+
+      @media print {
+        /* 배경색·컬러 강제 인쇄 */
+        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+
+        /* A4 세로, 여백 */
+        @page { size: A4 portrait; margin: 15mm 12mm; }
+
+        body { background: white !important; font-size: 10pt; font-family: 'Noto Sans KR', sans-serif; }
+
+        /* 화면 UI 전체 숨김 */
+        #root > div > div:first-child { display: none !important; } /* 상단 헤더 */
+        .tab-nav-bar, button, select, input { display: none !important; }
+
+        /* 인쇄 전용 컴포넌트 표시 */
+        .print-only { display: block !important; }
+
+        /* 페이지 나누기 */
+        .page-break { page-break-before: always; break-before: page; }
+        .print-page { page-break-inside: avoid; break-inside: avoid; padding: 0; }
+
+        /* 테이블 잘림 방지 */
+        tr { page-break-inside: avoid; }
+
+        /* 헤더/푸터 */
+        .print-header {
+          font-size: 9pt; color: #64748b;
+          border-bottom: 1px solid #e2e8f0;
+          padding-bottom: 4px; margin-bottom: 8px;
+        }
+        .print-footer {
+          margin-top: 20px; padding-top: 8px;
+          border-top: 1px solid #e2e8f0;
+          font-size: 9pt; color: #94a3b8;
+          text-align: right;
+        }
+
+        /* 링크 URL 숨김 */
+        a[href]::after { content: none !important; }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
