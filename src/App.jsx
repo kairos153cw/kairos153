@@ -3,7 +3,7 @@ import { useState, useRef, useCallback } from "react";
 /*
 카이로스153 생기부 분석기 v11.3  대표 컨설턴트: 신지은
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[v11.2 변경사항]
+[v11.3 변경사항]
 1. 입결 DB 교체 (맥에듀테크 2027 수시입결검색기, 135개 대학/6,645개)
 2. Tier 판정: 절대값→nGap 정규화 (spread 기반)
 3. c30 필드 완전 제거
@@ -202,9 +202,16 @@ function parseGradesFromText(text, gradeSystemOverride){
 
   const subjects = [];
   let currentSem = "";
+  let currentYear = "1";
 
   for(let i=0; i<lines.length; i++){
     const line = lines[i];
+
+    // 학년 감지: "1학년", "2학년", "3학년"
+    if(/^[123]학년$/.test(line)){
+      currentYear = line[0];
+      continue;
+    }
 
     // 학기 감지: "1" 또는 "2" 단독 라인 + 다음이 교과명(숫자 아님)
     if(/^[12]$/.test(line) && i+1<lines.length && !/^\d+$/.test(lines[i+1])){
@@ -243,6 +250,7 @@ function parseGradesFromText(text, gradeSystemOverride){
 
       subjects.push({
         sem: currentSem,
+        semLabel: currentYear+"-"+currentSem,
         subject,
         unit,
         achieve,
@@ -262,11 +270,29 @@ function parseGradesFromText(text, gradeSystemOverride){
   const rawAvg = Math.round(subjects.reduce((s,r)=>s+r.unit*r.grade,0)/totalUnits*100)/100;
   const byGroup = calcSubjectGroups(subjects);
 
+  // 학기별 평균 계산 (파서 직접 계산값)
+  const semGroups = {};
+  subjects.forEach(s=>{
+    // 학년은 순서로 추정: 첫 학기 변경 전=1학년, 후=2학년
+    const key = s.semLabel || s.sem;
+    if(!semGroups[key]) semGroups[key] = [];
+    semGroups[key].push(s);
+  });
+  // 학기 레이블 순서대로 추이 문자열 생성
+  const semKeys = Object.keys(semGroups);
+  const semTrend = semKeys.map(k=>{
+    const grp = semGroups[k];
+    const tu = grp.reduce((s,r)=>s+r.unit,0);
+    const av = tu ? Math.round(grp.reduce((s,r)=>s+r.unit*r.grade,0)/tu*100)/100 : null;
+    return av ? k+")"+av : null;
+  }).filter(Boolean).join("→");
+
   return {
     rawAvg, achieveBonus,
     avg: Math.round((rawAvg+achieveBonus)*100)/100,
     gradeSystem, admitYear: detected.year,
     subjects, aCount, aRatio, byGroup,
+    semTrend,
     confidence: subjects.length>=10?0.92:subjects.length>=5?0.80:0.65,
     manualCount: 0, is5,
   };
@@ -331,6 +357,7 @@ function ParsingPhase({text,onConfirm}){
       selectedKey:calcMode,
       selectedAvg:selectedAvg?.toFixed(2)||parsed.rawAvg.toFixed(2),
       byGroup,achieveBonus,aCount,subjects,
+      semTrend:parsed.semTrend||"",
     },text);
   };
 
@@ -819,7 +846,8 @@ function parseAnalysis(raw, text, gradeInfo){
            parseInfo:gradeInfo?`확정등급(${gradeInfo.selectedKey}/${gradeInfo.subjects?.length||0}과목,A${gradeInfo.aCount||0}개)`:"추이기반추정",
            achieveBonus:gradeInfo?.achieveBonus||0,
            gradeSystem:gradeInfo?.gradeSystem||"9등급",
-           byGroup:gradeInfo?.byGroup||{}},
+           byGroup:gradeInfo?.byGroup||{},
+           semTrend:gradeInfo?.semTrend||""},
     grade:{all:gradeAll,trend:s("내신추이"),bySubject:arr("과목별등급")},
     combo:{good:s("유리한조합"),bad:s("불리한조합"),sim:s("교과시뮬")},
     진로별유불리:s("진로별성적유불리"),
@@ -1188,7 +1216,8 @@ function Result({d, onReset, onReanalyze, isReanalyzing}){
     L.push(`역량: 학업${d.gradeLabels.학업}(${d.scores.학업}) / 진로${d.gradeLabels.진로}(${d.scores.진로}) / 공동체${d.gradeLabels.공동체}(${d.scores.공동체}) → 종합 ${d.total}점`);
     if(d.지망전공)L.push(`지망: ${d.지망전공}${d.altMajor?" → 변경고려: "+d.altMajor:""}`);
     if(d.진로별유불리){L.push("");L.push("[진로별 성적 유불리]");L.push(d.진로별유불리);}
-    if(d.analysis.trend){L.push("");L.push("[성적 추이]");L.push(d.analysis.trend);}
+    const trendStr=d.facts.semTrend||d.analysis.trend;
+    if(trendStr){L.push("");L.push("[성적 추이]");L.push(trendStr);}
     if(d.strengths.length){L.push("");L.push("[강점]");d.strengths.forEach((s,i)=>L.push(`${i+1}. ${s}`));}
     if(d.weaknesses.length){L.push("");L.push("[보완점]");d.weaknesses.forEach((s,i)=>L.push(`${i+1}. ${s}`));}
     if(d.suplement){
@@ -1227,7 +1256,7 @@ function Result({d, onReset, onReanalyze, isReanalyzing}){
       <div style={{background:C.surface,border:"1px solid "+C.border,borderRadius:"12px",padding:"14px",marginBottom:"10px"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:"8px",marginBottom:"8px"}}>
           <div>
-            <div style={{color:C.muted,fontSize:"10px",marginBottom:"2px"}}>KAIROS 153 · 신지은 · v11.2</div>
+            <div style={{color:C.muted,fontSize:"10px",marginBottom:"2px"}}>KAIROS 153 · 신지은 · v11.3</div>
             <div style={{color:C.text,fontSize:"17px",fontWeight:900}}>{d.name}{d.gender&&" ("+d.gender+")"}</div>
             <div style={{color:C.sub,fontSize:"11px"}}>{d.school} [{d.schoolType}] · {d.계열}</div>
             {d.지망전공&&<div style={{color:C.violet,fontSize:"11px",marginTop:2}}>지망: {d.지망전공}{d.altMajor&&" → 변경고려: "+d.altMajor}</div>}
@@ -1293,7 +1322,10 @@ function Result({d, onReset, onReanalyze, isReanalyzing}){
           {/* 성적 분석 */}
           <div style={{background:C.surface,border:"1px solid "+C.border,borderRadius:"10px",padding:"14px",marginBottom:"8px"}}>
             <div style={{fontSize:"11px",fontWeight:700,color:C.sub,marginBottom:"8px"}}>📈 성적 분석</div>
-            {d.grade.trend&&<div style={{fontSize:"12px",color:C.sub,marginBottom:"8px",padding:"8px 10px",background:C.panel,borderRadius:"7px"}}>추이: {d.grade.trend}</div>}
+            {(d.facts.semTrend||d.grade.trend)&&<div style={{fontSize:"12px",color:C.sub,marginBottom:"8px",padding:"8px 10px",background:C.panel,borderRadius:"7px"}}>
+              추이: {d.facts.semTrend||d.grade.trend}
+              {d.facts.semTrend&&<span style={{fontSize:"10px",color:C.muted,marginLeft:6}}>(파서 직접 계산)</span>}
+            </div>}
             {d.analysis.trend&&<div style={{fontSize:"12px",color:C.text,lineHeight:1.7,marginBottom:"6px"}}>{d.analysis.trend}</div>}
             {d.combo.good&&<div style={{marginBottom:"6px"}}><span style={{fontSize:"10px",color:C.green}}>유리한 조합 </span><span style={{fontSize:"12px",color:C.text,lineHeight:1.6}}>{d.combo.good}</span></div>}
             {d.combo.bad&&<div><span style={{fontSize:"10px",color:C.rose}}>불리한 조합 </span><span style={{fontSize:"12px",color:C.text,lineHeight:1.6}}>{d.combo.bad}</span></div>}
