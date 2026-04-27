@@ -189,54 +189,86 @@ function calcGyogwaGroup(subjects,groups){
   return Math.round(arr.reduce((s,r)=>s+r.unit*r.grade,0)/tu*100)/100;
 }
 
-// ── 블록 기반 내신 파싱 (v11.3 교체) ────────────────────────────
-function parseGradesFromText(text,gradeSystemOverride){
-  const detected=detectGradeSystem(text);
-  const gradeSystem=gradeSystemOverride||detected.system;
-  const is5=gradeSystem==="5등급";
-  const maxG=is5?5:9;
-  const sectionIdx=text.indexOf("7. 교과학습발달상황");
-  const target=sectionIdx>=0?text.slice(sectionIdx):text;
-  const lines=target.split(/\n/);
-  const subjects=[];
-  for(let i=0;i<lines.length-4;i++){
-    const unit=parseInt(lines[i].trim(),10);
-    if(!unit||unit<1||unit>8) continue;
-    for(let j=i+1;j<Math.min(i+10,lines.length);j++){
-      const lj=lines[j].trim();
-      if(lj==="P") break;
-      if(/^[A-E]\d+$/.test(lj)){
-        const achieve=lj[0];
-        if(j+1<lines.length){
-          const g=parseFloat(lines[j+1].trim());
-          if(g>=1&&g<=maxG){
-            let sem="";
-            for(let k=i;k>=Math.max(0,i-5);k--){
-              const sm=lines[k].trim().match(/^(\d)-(\d)$/);
-              if(sm){sem=sm[1]+"-"+sm[2];break;}
-            }
-            subjects.push({sem,unit,grade:g,achieve,manual:false,subject:""});
-            break;
+// ── 내신 파싱 (v11.3 실제 생기부 구조 기반) ─────────────────────
+function parseGradesFromText(text, gradeSystemOverride){
+  const detected = detectGradeSystem(text);
+  const gradeSystem = gradeSystemOverride || detected.system;
+  const is5 = gradeSystem === "5등급";
+  const maxG = is5 ? 5 : 9;
+
+  const sectionIdx = text.indexOf("7. 교과학습발달상황");
+  const target = sectionIdx >= 0 ? text.slice(sectionIdx) : text;
+  const lines = target.split(/\n/).map(l=>l.trim()).filter(l=>l.length>0);
+
+  const subjects = [];
+  let currentSem = "";
+
+  for(let i=0; i<lines.length; i++){
+    const line = lines[i];
+
+    // 학기 감지: "1" 또는 "2" 단독 라인 + 다음이 교과명(숫자 아님)
+    if(/^[12]$/.test(line) && i+1<lines.length && !/^\d+$/.test(lines[i+1])){
+      currentSem = line;
+      continue;
+    }
+
+    // 성취도(수강자수) 패턴: A(257), B(108), C(246), D(257), E(246)
+    // 9등급: A~E / 5등급: A~E (동일)
+    const am = line.match(/^([A-E])\((\d+)\)$/);
+    if(am){
+      const achieve = am[1];
+      // P 과목 제외
+      if(achieve === "P") continue;
+      // 다음 라인이 등급
+      if(i+1 >= lines.length) continue;
+      const gradeStr = lines[i+1];
+      if(!/^\d+(\.\d+)?$/.test(gradeStr)) continue;
+      const grade = parseFloat(gradeStr);
+      if(grade < 1 || grade > maxG) continue;
+
+      // 역방향으로 학점수 탐색
+      let unit = null;
+      let subject = "";
+      for(let j=i-1; j>=Math.max(0,i-6); j--){
+        if(/^[1-8]$/.test(lines[j])){
+          unit = parseInt(lines[j]);
+          // 과목명: 학점수 바로 앞 라인
+          if(j-1>=0 && !/^[12]$/.test(lines[j-1]) && !/^[1-8]$/.test(lines[j-1])){
+            subject = lines[j-1];
           }
+          break;
         }
-        break;
       }
+      if(!unit) continue;
+
+      subjects.push({
+        sem: currentSem,
+        subject,
+        unit,
+        achieve,
+        grade,
+        manual: false,
+      });
+      i++; // 등급 라인 건너뛰기
     }
   }
-  if(subjects.length<3) return null;
-  const aCount=subjects.filter(s=>s.achieve==="A").length;
-  const aRatio=Math.round(aCount/subjects.length*100)/100;
-  const achieveBonus=aRatio>=0.6?-0.2:aRatio>=0.4?-0.1:0;
-  const totalUnits=subjects.reduce((s,r)=>s+r.unit,0);
-  const rawAvg=Math.round(subjects.reduce((s,r)=>s+r.unit*r.grade,0)/totalUnits*100)/100;
-  const byGroup=calcSubjectGroups(subjects);
-  return{
-    rawAvg,achieveBonus,
-    avg:Math.round((rawAvg+achieveBonus)*100)/100,
-    gradeSystem,admitYear:detected.year,
-    subjects,aCount,aRatio,byGroup,
-    confidence:subjects.length>=10?0.92:subjects.length>=5?0.80:0.65,
-    manualCount:0,is5,
+
+  if(subjects.length < 3) return null;
+
+  const aCount = subjects.filter(s=>s.achieve==="A").length;
+  const aRatio = Math.round(aCount/subjects.length*100)/100;
+  const achieveBonus = aRatio>=0.6?-0.2:aRatio>=0.4?-0.1:0;
+  const totalUnits = subjects.reduce((s,r)=>s+r.unit,0);
+  const rawAvg = Math.round(subjects.reduce((s,r)=>s+r.unit*r.grade,0)/totalUnits*100)/100;
+  const byGroup = calcSubjectGroups(subjects);
+
+  return {
+    rawAvg, achieveBonus,
+    avg: Math.round((rawAvg+achieveBonus)*100)/100,
+    gradeSystem, admitYear: detected.year,
+    subjects, aCount, aRatio, byGroup,
+    confidence: subjects.length>=10?0.92:subjects.length>=5?0.80:0.65,
+    manualCount: 0, is5,
   };
 }
 
@@ -610,12 +642,17 @@ function buildJongRecs(grade, sebu, gyeyeol, gender, majorGroup, achieveBonus=0,
     (to[a.tier]||3)-(to[b.tier]||3) ||
     b.poss-a.poss || a.c-b.c
   );
+  // majorGroup 있을 때 → 전공 매칭된 학과만 표시 (Option A)
+  const display = majorGroup
+    ? all.filter(r=>r.majorMatch)
+    : all;
+
   return {
-    안정: all.filter(r=>r.tier==="안정").slice(0,10),
-    적정: all.filter(r=>r.tier==="적정").slice(0,10),
-    소신: all.filter(r=>r.tier==="소신").slice(0,10),
-    상향: all.filter(r=>r.tier==="상향").slice(0,5),
-    all,
+    안정: display.filter(r=>r.tier==="안정").slice(0,10),
+    적정: display.filter(r=>r.tier==="적정").slice(0,10),
+    소신: display.filter(r=>r.tier==="소신").slice(0,10),
+    상향: display.filter(r=>r.tier==="상향").slice(0,5),
+    all: display,
   };
 }
 
@@ -1656,6 +1693,12 @@ export default function App(){
     }catch(e){setError(e.message||"파일 읽기 오류");setPhase("error");}
   },[]);
   const handleParsingConfirm=useCallback(async(gradeInfo,text)=>{
+    // 파싱 실패 → 수동입력 화면으로 전환
+    if(!gradeInfo){
+      setShowManual(true);
+      setPhase("upload");
+      return;
+    }
     setPhase("loading");setStep(2);
     try{
       setStep(4);const raw=await callAI(makePrompt1(text,gradeInfo));
