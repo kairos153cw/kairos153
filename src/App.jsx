@@ -1208,14 +1208,14 @@ function Result({d, onReset, onReanalyze, isReanalyzing}){
       </div>
       {d.facts.byGroup&&Object.keys(d.facts.byGroup).some(k=>d.facts.byGroup[k])&&(
         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:"8px"}}>
-          {Object.entries(d.facts.byGroup).filter(([,v])=>v!=null).map(([k,v])=>(
+          {Object.entries(d.facts.byGroup).filter(function(e){return e[1]!=null;}).map(function(e){const k=e[0],v=e[1]; return(
             <div key={k} style={{background:C.panel,border:"1px solid "+C.border,borderRadius:"6px",padding:"3px 8px",fontSize:"10px"}}>
               <span style={{color:C.muted}}>{k} </span><b style={{color:C.accent}}>{v}</b>
             </div>
-          ))}
+          );})}
         </div>
-        </div>
-        <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
+      )}
+      <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
           {[["내신",d.grade.all+"등급",C.accent],["추천전형",d.rec.type,C.gold],["계열",d.계열,C.violet]].map(([l,v,c])=>(
             <div key={l} style={{background:C.panel,border:"1px solid "+C.border,borderRadius:"7px",padding:"5px 10px"}}>
               <div style={{fontSize:"10px",color:C.muted}}>{l}</div>
@@ -1263,7 +1263,7 @@ function Result({d, onReset, onReanalyze, isReanalyzing}){
           </div>
 
           {/* 세특·진로·리더십 */}
-          {[["🔬 세특 진단",d.analysis.sebu],["🎯 진로 일관성",d.analysis.career],["🏆 리더십",d.analysis.leader]].filter(([,v])=>v).map(([t,c])=>(
+          {[["🔬 세특 진단",d.analysis.sebu],["🎯 진로 일관성",d.analysis.career],["🏆 리더십",d.analysis.leader]].filter(([_,v])=>v).map(([t,c])=>(
             <div key={t} style={{background:C.surface,border:"1px solid "+C.border,borderRadius:"10px",padding:"12px",marginBottom:"8px"}}>
               <div style={{fontSize:"11px",fontWeight:700,color:C.sub,marginBottom:"5px"}}>{t}</div>
               <div style={{fontSize:"12px",color:C.text,lineHeight:1.7}}>{c}</div>
