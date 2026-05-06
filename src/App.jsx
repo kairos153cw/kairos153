@@ -1536,9 +1536,9 @@ export default function App(){
               <div>
                 <div style={{fontSize:"11px",color:C.sub,marginBottom:"3px"}}>검토사항 <span style={{color:C.muted}}>(자유 입력)</span></div>
                 <textarea value={preInput.memo} onChange={e=>setPreInput(p=>({...p,memo:e.target.value}))}
-                  placeholder={"예: 2학년 성적 하락 사유 (코로나 격리)
+                  placeholder={`예: 2학년 성적 하락 사유 (코로나 격리)
 부모님은 의대 원하지만 학생 본인은 미디어 희망
-재수 고려 중, 정시도 함께 검토 필요"}
+재수 고려 중, 정시도 함께 검토 필요`}
                   rows={3}
                   style={{width:"100%",padding:"7px 10px",border:"1px solid "+C.border,borderRadius:"7px",fontSize:"12px",fontFamily:"inherit",background:C.panel,color:C.text,resize:"vertical",boxSizing:"border-box"}}/>
                 <div style={{fontSize:"10px",color:C.muted,marginTop:"3px"}}>※ 학생부 기재 내용 우선. 입력 내용은 참고로만 반영됩니다.</div>
