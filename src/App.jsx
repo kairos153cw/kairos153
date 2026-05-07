@@ -460,7 +460,7 @@ const SYS=`당신은 대한민국 최고의 입학사정관이자 입시 전문 
 
 // ── 1단계 프롬프트 (v11.4) ─────────────────────────────────────────
 function makePrompt1(text, preInput){
-  const t = text.length > 90000 ? text.slice(0,90000) : text;
+  const t = text.length > 60000 ? text.slice(0,60000) : text;
   const preBlock = (preInput && (preInput.지망전공||preInput.subjects||preInput.club||preInput.memo))
     ? `[컨설턴트 추가 정보 - 참고 정보로 활용할 것]
 희망전공: ${preInput.지망전공||""}
@@ -547,7 +547,7 @@ ${subjects?`3학년 이수 예정 과목: ${subjects}`:""}
 ${club?`현재 동아리명: ${club}`:""}
 
 내신: ${analysisResult.facts.gradeAll}등급
-세특수준: ${analysisResult.facts.sebuLevel}
+서류등급: ${analysisResult.facts.docGrade||"B"}
 진로일관성: ${analysisResult.facts.careerConsistency}
 
 추천전공보완::추천 전공 지원을 위한 3학년 구체적 보완사항 ◆ 3개
@@ -563,24 +563,23 @@ function parseGradesFromText(text){
   for(let i=0;i<lines.length-4;i++){
     const unit=parseInt(lines[i].trim(),10);
     if(!unit||unit<1||unit>8)continue;
-    for(let j=i+1;j<Math.min(i+8,lines.length);j++){
-      if(/^[A-E]\d+$/.test(lines[j].trim())){
-        if(j+1<lines.length){const g=parseInt(lines[j+1].trim(),10);if(g>=1&&g<=9){res.push({unit,grade:g});break;}}
+    for(let j=i+1;j<Math.min(i+10,lines.length);j++){
+      const t=lines[j].trim();
+      // "A(257)" "B(246)" "A(58)" 형태 매칭 (나이스 TXT 형식)
+      if(/^[A-E]\(\d+\)$/.test(t)||/^[A-E]\d+$/.test(t)){
+        // 다음줄이 석차등급 (1~9)
+        if(j+1<lines.length){
+          const g=parseInt(lines[j+1].trim(),10);
+          if(g>=1&&g<=9){res.push({unit,grade:g});break;}
+        }
         break;
       }
     }
   }
   if(res.length<3)return null;
   const tu=res.reduce((s,r)=>s+r.unit,0);
-  // 성취도 보정: A 과목 카운트
-  const aCount=text.match(/성취도.*?A|A.*?성취도/g)?.length||
-    (text.match(/\bA\b/g)||[]).length;
-  const achieveBonus=aCount>=5?-0.2:aCount>=3?-0.1:0;
   const rawAvg=Math.round((res.reduce((s,r)=>s+r.unit*r.grade,0)/tu)*100)/100;
-  return{
-    avg:Math.round((rawAvg+achieveBonus)*100)/100,
-    rawAvg,achieveBonus,count:res.length,aCount
-  };
+  return{avg:rawAvg,rawAvg,count:res.length};
 }
 function detectSchoolType(text){
   if(["영재학교","영재고","과학영재"].some(k=>text.includes(k))) return "영재고";
@@ -906,7 +905,10 @@ function ManualInput({onAnalyze}){
   );
   const go=()=>{
     const gen=gender==="미입력"?"":gender;
-    const scores=calcScores(grade,sebu,career,leader);
+    const adjGradeM=parseFloat(grade)||3.0;
+    const spreadBadgeM="🟡";
+    const scoresM=calcScoresV114(adjGradeM,"B","유관일관","역할있음","간헐적","참여","정상",spreadBadgeM);
+    const scores=scoresM;
     const total=calcTotal(scores);
     const rmg=detectMajorGroup(지망);
     onAnalyze({
@@ -915,7 +917,7 @@ function ManualInput({onAnalyze}){
       facts:{gradeAll:grade,sebuLevel:sebu,careerConsistency:career,leadershipLevel:leader,parseInfo:"수동입력",achieveBonus:0},
       grade:{all:grade,trend:"",bySubject:[]},
       combo:{good:"",bad:"",sim:""},진로별유불리:"",
-      scores,total,gradeLabels:{학업:gradeLabel(scores.학업),진로:gradeLabel(scores.진로),공동체:gradeLabel(scores.공동체)},
+      scores,total,gradeLabel:gradeLabel(total),strength:getStrength(total),adjGrade:adjGradeM,docGrade:"B",
       analysis:{trend:"",sebu:"",career:"",leader:"",goodSubjects:[],badSubjects:[],excluded:"해당없음"},
       strengths:[],weaknesses:[],majors:[],
       rec:{type:"종합",reason:"",strategy:""},
@@ -958,7 +960,7 @@ function Result({d, onReset, onReanalyze, isReanalyzing}){
   const[club,setClub]=useState("");
   const[searchQ,setSearchQ]=useState("");
 
-  const achieveBonus=d.facts?.achieveBonus||0;
+  // v11.4: achieveBonus 제거됨
   const wishMajorGroup=d.altMajor?detectMajorGroup(d.altMajor)||d.wishMajorGroup:d.wishMajorGroup;
   // v11.4: 조정내신 기반 buildJongRecs
   const jongRecRecs=buildJongRecs(d.facts.gradeAll,d.docGrade||"B",d.schoolType||"일반고",d.계열,d.gender,d.recMajorGroup,d.strength||"중");
@@ -968,8 +970,10 @@ function Result({d, onReset, onReanalyze, isReanalyzing}){
   // 입결 검색
   const jongDB=getJongDB(d.계열); const gyogwaDB=getGyogwaDB(d.계열);
   const allDb=[...jongDB,...gyogwaDB];
+  const searchInfo=getSearchTerms(searchQ);
   const searchResults=searchQ.length>=2?allDb.filter(r=>
-    r.u.includes(searchQ)||r.m.includes(searchQ)||r.t.includes(searchQ)
+    r.u.includes(searchQ)||
+    searchInfo.terms.some(t=>r.m.includes(t)||r.t.includes(t))
   ):[];
 
   // 리포트
@@ -977,9 +981,9 @@ function Result({d, onReset, onReanalyze, isReanalyzing}){
     const L=[];
     L.push("KAIROS 153 · 카이로스153 대입컨설팅 · 2027학년도 · v11.2");
     L.push(`학생: ${d.name}${d.gender?" ("+d.gender+")":""} | ${d.school||""} [${d.schoolType}] | ${d.계열}`);
-    L.push(`내신: ${d.facts.gradeAll}등급 [${d.facts.parseInfo}]${d.facts.achieveBonus?` (성취도보정 ${d.facts.achieveBonus})`:""}`);
-    L.push(`세특: ${d.facts.sebuLevel} | 진로: ${d.facts.careerConsistency} | 리더십: ${d.facts.leadershipLevel}`);
-    L.push(`역량: 학업${d.gradeLabels.학업}(${d.scores.학업}) / 진로${d.gradeLabels.진로}(${d.scores.진로}) / 공동체${d.gradeLabels.공동체}(${d.scores.공동체}) → 종합 ${d.total}점`);
+    L.push(`내신: ${d.facts.gradeAll}등급 [${d.facts.parseInfo}]`);
+    L.push(`세특: ${"B"} | 진로: ${d.facts.careerConsistency} | 리더십: ${"역할있음"}`);
+    L.push(`역량: 학업${gradeLabel(d.scores?.학업||0)}(${d.scores.학업}) / 진로${gradeLabel(d.scores?.진로||0)}(${d.scores.진로}) / 공동체${gradeLabel(d.scores?.공동체||0)}(${d.scores.공동체}) → 종합 ${d.total}점`);
     if(d.지망전공)L.push(`지망: ${d.지망전공}${d.altMajor?" → 변경고려: "+d.altMajor:""}`);
     if(d.진로별유불리){L.push("");L.push("[진로별 성적 유불리]");L.push(d.진로별유불리);}
     if(d.analysis.trend){L.push("");L.push("[성적 추이]");L.push(d.analysis.trend);}
@@ -1033,8 +1037,8 @@ function Result({d, onReset, onReanalyze, isReanalyzing}){
           </div>
         </div>
         <div style={{background:C.panel,borderRadius:"8px",padding:"7px 12px",fontSize:"11px",color:C.sub,marginBottom:"8px",lineHeight:1.7}}>
-          세특 <b>{d.facts.sebuLevel}</b> · 진로 <b>{d.facts.careerConsistency}</b> · 리더십 <b>{d.facts.leadershipLevel}</b>
-          {d.facts.achieveBonus<0&&<span style={{color:C.green,marginLeft:6}}>· 성취도보정 {d.facts.achieveBonus}</span>}
+          서류등급 <b>{d.docGrade||"B"}</b> · 조정내신 <b>{d.adjGrade?.toFixed(2)||"계산중"}</b> · 진로일관성 <b>{d.careerConsistency||"유관일관"}</b>
+          
         </div>
         <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
           {[["내신",d.grade.all+"등급",C.accent],["추천전형",d.rec.type,C.gold],["계열",d.계열,C.violet]].map(([l,v,c])=>(
@@ -1048,7 +1052,7 @@ function Result({d, onReset, onReanalyze, isReanalyzing}){
 
       {/* 역량 3단 */}
       <div style={{display:"flex",gap:"8px",marginBottom:"10px"}}>
-        {[["학업(40%)",d.gradeLabels.학업,C.accent],["진로(40%)",d.gradeLabels.진로,C.green],["공동체(20%)",d.gradeLabels.공동체,C.violet]].map(([l,g,c])=>(
+        {[["학업(40%)",gradeLabel(d.scores?.학업||0),C.accent],["진로(40%)",gradeLabel(d.scores?.진로||0),C.green],["공동체(20%)",gradeLabel(d.scores?.공동체||0),C.violet]].map(([l,g,c])=>(
           <div key={l} style={{flex:1,background:C.surface,border:"1px solid "+C.border,borderRadius:"10px",padding:"10px",textAlign:"center"}}>
             <div style={{fontSize:"10px",color:C.muted,marginBottom:"2px"}}>{l}</div>
             <div style={{fontSize:"24px",fontWeight:900,color:c,lineHeight:1}}>{g}</div>
@@ -1373,7 +1377,7 @@ function PrintReport({d, jongRecRecs, jongWishRecs, gyogwaRecs, wishMajorGroup})
         <p style={{margin:"2px 0",fontSize:"10pt"}}>{d.school} [{d.schoolType}] · {d.계열}</p>
         <p style={{margin:"2px 0",fontSize:"10pt"}}>
           내신: <b>{d.facts.gradeAll}등급</b>
-          {d.facts.achieveBonus<0&&` (성취도보정 ${d.facts.achieveBonus})`}
+          
         </p>
         {d.analysis.trend&&<p style={{margin:"2px 0",fontSize:"10pt"}}>성적추이: {d.analysis.trend}</p>}
         {d.지망전공&&<p style={{margin:"2px 0",fontSize:"10pt"}}>지망전공: {d.지망전공}{d.altMajor&&` → 변경고려: ${d.altMajor}`}</p>}
@@ -1536,9 +1540,7 @@ export default function App(){
               <div>
                 <div style={{fontSize:"11px",color:C.sub,marginBottom:"3px"}}>검토사항 <span style={{color:C.muted}}>(자유 입력)</span></div>
                 <textarea value={preInput.memo} onChange={e=>setPreInput(p=>({...p,memo:e.target.value}))}
-                  placeholder={`예: 2학년 성적 하락 사유 (코로나 격리)
-부모님은 의대 원하지만 학생 본인은 미디어 희망
-재수 고려 중, 정시도 함께 검토 필요`}
+                  placeholder={"예: 2학년 성적 하락 사유 (코로나 격리)\n부모님은 의대 원하지만 학생 본인은 미디어 희망\n재수 고려 중, 정시도 함께 검토 필요"}
                   rows={3}
                   style={{width:"100%",padding:"7px 10px",border:"1px solid "+C.border,borderRadius:"7px",fontSize:"12px",fontFamily:"inherit",background:C.panel,color:C.text,resize:"vertical",boxSizing:"border-box"}}/>
                 <div style={{fontSize:"10px",color:C.muted,marginTop:"3px"}}>※ 학생부 기재 내용 우선. 입력 내용은 참고로만 반영됩니다.</div>
